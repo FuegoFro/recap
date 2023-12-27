@@ -163,7 +163,7 @@ type Result<T> = envy::Result<T>;
 
 struct Vars<'a, Iter>(Iter)
 where
-    Iter: IntoIterator<Item = (&'a str, &'a str, Option<&'a FieldOptions>)>;
+    Iter: IntoIterator<Item = Val<'a>>;
 
 struct Val<'a>(&'a str, &'a str, Option<&'a FieldOptions>);
 
@@ -185,13 +185,11 @@ impl<'a: 'de, 'de> IntoDeserializer<'de, Error> for VarName<'a> {
     }
 }
 
-impl<'a, Iter: Iterator<Item = (&'a str, &'a str, Option<&'a FieldOptions>)>> Iterator
-    for Vars<'a, Iter>
-{
+impl<'a, Iter: Iterator<Item = Val<'a>>> Iterator for Vars<'a, Iter> {
     type Item = (VarName<'a>, Val<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v, o)| (VarName(k), Val(k, v, o)))
+        self.0.next().map(|val| (VarName(val.0), val))
     }
 }
 
@@ -331,17 +329,11 @@ impl<'a: 'de, 'de> de::Deserializer<'de> for VarName<'a> {
 }
 
 /// A deserializer for env vars
-struct Deserializer<
-    'a,
-    'de: 'a,
-    Iter: Iterator<Item = (&'a str, &'a str, Option<&'a FieldOptions>)>,
-> {
+struct Deserializer<'a, 'de: 'a, Iter: Iterator<Item = Val<'a>>> {
     inner: MapDeserializer<'de, Vars<'a, Iter>, Error>,
 }
 
-impl<'a, 'de: 'a, Iter: Iterator<Item = (&'a str, &'a str, Option<&'a FieldOptions>)>>
-    Deserializer<'a, 'de, Iter>
-{
+impl<'a, 'de: 'a, Iter: Iterator<Item = Val<'a>>> Deserializer<'a, 'de, Iter> {
     fn new(vars: Iter) -> Self {
         Deserializer {
             inner: MapDeserializer::new(Vars(vars)),
@@ -349,8 +341,8 @@ impl<'a, 'de: 'a, Iter: Iterator<Item = (&'a str, &'a str, Option<&'a FieldOptio
     }
 }
 
-impl<'a: 'de, 'de, Iter: Iterator<Item = (&'a str, &'a str, Option<&'a FieldOptions>)>>
-    de::Deserializer<'de> for Deserializer<'a, 'de, Iter>
+impl<'a: 'de, 'de, Iter: Iterator<Item = Val<'a>>> de::Deserializer<'de>
+    for Deserializer<'a, 'de, Iter>
 {
     type Error = Error;
     fn deserialize_any<V>(
@@ -386,7 +378,7 @@ impl<'a: 'de, 'de, Iter: Iterator<Item = (&'a str, &'a str, Option<&'a FieldOpti
 fn from_iter<'a, Iter, T>(iter: Iter) -> Result<T>
 where
     T: de::Deserialize<'a>,
-    Iter: IntoIterator<Item = (&'a str, &'a str, Option<&'a FieldOptions>)>,
+    Iter: IntoIterator<Item = Val<'a>>,
 {
     T::deserialize(Deserializer::new(iter.into_iter()))
 }
@@ -428,7 +420,7 @@ where
 
     from_iter(re.capture_names().flatten().filter_map(|name| {
         caps.name(name).map(|val| {
-            (
+            Val(
                 name,
                 val.as_str(),
                 field_options.and_then(|fo| fo.get(name)),
